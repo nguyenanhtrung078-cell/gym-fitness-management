@@ -103,6 +103,23 @@ const initializeAuth = async () => {
     attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
   ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+
+  // Core tables are also ensured here so authentication can recover safely
+  // if an earlier database initialization was interrupted.
+  await pool.query(`CREATE TABLE IF NOT EXISTS trainers (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    full_name VARCHAR(100) NOT NULL,
+    specialty VARCHAR(150) NOT NULL,
+    phone VARCHAR(20),
+    email VARCHAR(120) UNIQUE
+  ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS plans (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    duration_months INT UNSIGNED NOT NULL,
+    price DECIMAL(12,2) NOT NULL,
+    description VARCHAR(255)
+  ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
   await pool.query(`CREATE TABLE IF NOT EXISTS member_preferences (
     member_id INT UNSIGNED PRIMARY KEY,
     trainer_id INT UNSIGNED NULL,
