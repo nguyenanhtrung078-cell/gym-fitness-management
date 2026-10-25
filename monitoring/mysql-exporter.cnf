@@ -1,0 +1,3 @@
+[client]
+user = ${MYSQLD_EXPORTER_USER}
+password = ${MYSQLD_EXPORTER_PASSWORD}
