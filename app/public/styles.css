@@ -949,6 +949,47 @@ select option {
   letter-spacing: 0.1em;
 }
 
+.overview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.quick-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 10px 14px;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  border-radius: 12px;
+  background: rgba(8, 27, 46, 0.72);
+  color: #dbeafe;
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.quick-action:hover {
+  transform: translateY(-1px);
+  background: rgba(30, 64, 175, 0.34);
+  border-color: rgba(125, 211, 252, 0.6);
+  color: #fff;
+}
+
+.quick-action-primary {
+  border-color: rgba(16, 185, 129, 0.52);
+  background: linear-gradient(135deg, rgba(5, 150, 105, 0.9), rgba(16, 185, 129, 0.82));
+  color: #ecfdf5;
+}
+
+.quick-action-primary:hover {
+  background: linear-gradient(135deg, rgba(4, 120, 87, 0.95), rgba(5, 150, 105, 0.94));
+  border-color: rgba(110, 231, 183, 0.8);
+}
+
 .panel {
   background: var(--glass-card);
   backdrop-filter: blur(35px);
@@ -1108,6 +1149,49 @@ td.actions button[data-delete]:hover {
   color: #fff;
 }
 
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.status-badge.active {
+  color: #6ee7b7;
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.status-badge.paused {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.14);
+  border: 1px solid rgba(239, 68, 68, 0.32);
+}
+
+td.actions button.member-status-action.suspend {
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.38);
+  color: #fcd34d;
+}
+
+td.actions button.member-status-action.suspend:hover {
+  background: rgba(245, 158, 11, 0.28);
+  color: #fff;
+}
+
+td.actions button.member-status-action.activate {
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.38);
+  color: #6ee7b7;
+}
+
+td.actions button.member-status-action.activate:hover {
+  background: rgba(16, 185, 129, 0.28);
+  color: #fff;
+}
+
 /* ==========================================================================
    Responsive Breakpoints
    ========================================================================== */
@@ -1156,6 +1240,10 @@ td.actions button[data-delete]:hover {
   .overview {
     flex-direction: column;
     align-items: flex-start;
+  }
+  .overview-actions {
+    justify-content: flex-start;
+    margin-left: 0;
   }
   .overview-badge {
     display: none;

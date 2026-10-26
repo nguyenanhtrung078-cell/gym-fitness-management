@@ -65,11 +65,66 @@ function finishLogin(data) {
   }
 }
 async function submitAuth(event, endpoint) { event.preventDefault(); const form = new FormData(event.target); const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(form)) }); const data = await res.json(); if (!res.ok) return showAuthMessage(data.error || 'Không thể thực hiện thao tác.', 'error'); finishLogin(data); }
+const createLabels = { members: 'Thêm hội viên', plans: 'Thêm gói tập', trainers: 'Thêm huấn luyện viên', schedules: 'Thêm lịch tập', member_plans: 'Thêm gói đăng ký' };
 function input([name,label,type]) { if (type.startsWith('select:')) return `<label>${label}<select name="${name}">${type.slice(7).split('|').map(x=>`<option>${x}</option>`).join('')}</select></label>`; return `<label>${label}<input name="${name}" type="${type}" required></label>`; }
-function drawForm(){ const cfg=configs[current]; $('#title').textContent=cfg.title; $('#form').innerHTML=cfg.fields.map(input).join('')+'<button type="submit">'+(editing?'Lưu thay đổi':'Thêm mới')+'</button>'+ (editing?'<button type="button" id="cancel">Hủy</button>':''); if(editing){cfg.fields.forEach(([name])=>{const el=$(`[name=${name}]`); el.value=editing[name]||''}); $('#cancel').onclick=()=>{editing=null;drawForm()};}}
-async function load(){ const res=await request(`/api/${current}`); if (!res.ok) return; const rows=await res.json(), cfg=configs[current]; $('#head').innerHTML='<tr>'+cfg.fields.map(([,label])=>`<th>${label}</th>`).join('')+'<th>Thao tác</th></tr>'; $('#body').innerHTML=rows.map(row=>'<tr>'+cfg.fields.map(([name])=>`<td>${row[name]??''}</td>`).join('')+`<td class="actions"><button data-id="${row.id}">Sửa</button> <button data-delete="${row.id}">Xóa</button></td></tr>`).join(''); $('#body').querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>{editing=rows.find(x=>x.id==b.dataset.id);drawForm()}); $('#body').querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{if(confirm('Xóa bản ghi này?')){await request(`/api/${current}/${b.dataset.delete}`,{method:'DELETE'});load();loadMemberChoices();loadCommunity();}}); }
+function drawForm() {
+  const cfg = configs[current];
+  $('#title').textContent = cfg.title;
+  $('#form').innerHTML = cfg.fields.map(input).join('') + `<button type="submit">${editing ? 'Lưu thay đổi' : createLabels[current]}</button>` + (editing ? '<button type="button" id="cancel">Hủy</button>' : '');
+  if (editing) {
+    cfg.fields.forEach(([name]) => { const el = $(`[name=${name}]`); el.value = editing[name] || ''; });
+    $('#cancel').onclick = () => { editing = null; drawForm(); };
+  } else if (current === 'members') {
+    $('#form [name=registered_at]').value = new Date().toISOString().slice(0, 10);
+  }
+}
+function renderCell(name, value) {
+  if (current === 'members' && name === 'status') {
+    const active = value === 'active';
+    return `<td><span class="status-badge ${active ? 'active' : 'paused'}">${active ? 'Đang hoạt động' : 'Tạm ngừng'}</span></td>`;
+  }
+  return `<td>${value ?? ''}</td>`;
+}
+async function updateMemberStatus(button) {
+  const nextStatus = button.dataset.memberStatus;
+  const action = nextStatus === 'active' ? 'kích hoạt lại' : 'tạm ngừng hoạt động';
+  if (!confirm(`Bạn có chắc muốn ${action} hội viên này?`)) return;
+  button.disabled = true;
+  try {
+    const response = await request(`/api/members/${button.dataset.memberId}/status`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: nextStatus })
+    });
+    const data = await response.json().catch(() => ({}));
+    $('#message').textContent = data.message || data.error || 'Không thể cập nhật trạng thái hội viên.';
+    if (response.ok) { await load(); loadCommunity(); }
+    else button.disabled = false;
+  } catch (_error) {
+    $('#message').textContent = 'Không thể cập nhật trạng thái hội viên.';
+    button.disabled = false;
+  }
+}
+async function load() {
+  const res = await request(`/api/${current}`);
+  if (!res.ok) return;
+  const rows = await res.json(), cfg = configs[current];
+  $('#head').innerHTML = '<tr>' + cfg.fields.map(([, label]) => `<th>${label}</th>`).join('') + '<th>Thao tác</th></tr>';
+  $('#body').innerHTML = rows.map(row => {
+    const statusAction = current === 'members'
+      ? `<button class="member-status-action ${row.status === 'active' ? 'suspend' : 'activate'}" data-member-id="${row.id}" data-member-status="${row.status === 'active' ? 'Tạm ngưng' : 'active'}">${row.status === 'active' ? 'Tạm ngừng' : 'Kích hoạt lại'}</button>`
+      : '';
+    return '<tr>' + cfg.fields.map(([name]) => renderCell(name, row[name])).join('') + `<td class="actions"><button data-id="${row.id}">Sửa</button>${statusAction}<button data-delete="${row.id}">Xóa</button></td></tr>`;
+  }).join('');
+  $('#body').querySelectorAll('[data-id]').forEach(b => b.onclick = () => { editing = rows.find(x => x.id == b.dataset.id); drawForm(); });
+  $('#body').querySelectorAll('[data-member-status]').forEach(b => b.onclick = () => updateMemberStatus(b));
+  $('#body').querySelectorAll('[data-delete]').forEach(b => b.onclick = async () => { if (confirm('Xóa bản ghi này?')) { await request(`/api/${current}/${b.dataset.delete}`, { method: 'DELETE' }); load(); loadMemberChoices(); loadCommunity(); } });
+}
 async function switchTo(name){current=name;editing=null;document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('active',b.dataset.name===name));drawForm();await load();}
 Object.entries(configs).forEach(([name,cfg])=>{const b=document.createElement('button');b.textContent=cfg.title;b.dataset.name=name;b.onclick=()=>switchTo(name);$('#tabs').append(b)});
+function openAdminResource(name) {
+  switchTo(name).then(() => $('#form input, #form select')?.focus());
+}
+$('#quick-add-trainer').onclick = () => openAdminResource('trainers');
+$('#quick-manage-members').onclick = () => openAdminResource('members');
 $('#form').onsubmit=async(e)=>{e.preventDefault();const data=Object.fromEntries(new FormData(e.target));const url=`/api/${current}`+(editing?`/${editing.id}`:'');const res=await request(url,{method:editing?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});$('#message').textContent=res.ok?'Đã lưu dữ liệu.':'Không thể lưu dữ liệu.';if(res.ok){editing=null;drawForm();load();loadMemberChoices();loadCommunity();}};
 document.querySelectorAll('.auth-tab').forEach(button => button.onclick = () => setAuthMode(button.dataset.auth));
 document.querySelector('.auth-tab[data-auth="otp"]')?.remove();

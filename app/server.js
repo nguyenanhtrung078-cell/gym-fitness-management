@@ -195,6 +195,17 @@ const authReady = initializeAuth().catch((error) => {
   console.error('Cannot initialize authentication:', error.message || error);
 });
 const currentUser = (req) => readToken(req.headers.authorization?.replace(/^Bearer\s+/i, ''));
+const memberAccountIsActive = async (user) => {
+  if (user.role !== 'member') return true;
+  const [rows] = await pool.execute(
+    `SELECT m.status
+      FROM users u
+      LEFT JOIN members m ON m.id = u.member_id
+      WHERE u.id = ?`,
+    [user.id]
+  );
+  return rows[0]?.status === 'active';
+};
 const requireAdmin = async (req, res, next) => {
   await authReady;
   if (authInitError) return res.status(503).json({ error: 'Hệ thống đang khởi động, vui lòng thử lại sau.' });
@@ -209,6 +220,13 @@ const requireUser = async (req, res, next) => {
   if (authInitError) return res.status(503).json({ error: 'Hệ thống đang khởi động, vui lòng thử lại sau.' });
   const user = currentUser(req);
   if (!user) return res.status(401).json({ error: 'Vui lòng đăng nhập.' });
+  try {
+    if (!(await memberAccountIsActive(user))) {
+      return res.status(403).json({ error: 'Tài khoản hội viên của bạn đang tạm ngừng hoạt động. Vui lòng liên hệ quản trị viên.' });
+    }
+  } catch (error) {
+    return next(error);
+  }
   req.user = user;
   next();
 };
@@ -284,13 +302,19 @@ app.post('/api/auth/login', async (req, res, next) => {
   if (!email || !password) return res.status(400).json({ error: 'Vui lòng nhập email và mật khẩu.' });
   try {
     const [rows] = await pool.execute(
-      'SELECT id, full_name, email, password_hash, role FROM users WHERE email = ?',
+      `SELECT u.id, u.full_name, u.email, u.password_hash, u.role, m.status AS member_status
+        FROM users u
+        LEFT JOIN members m ON m.id = u.member_id
+        WHERE u.email = ?`,
       [email]
     );
     const user = rows[0];
     if (!user) return res.status(401).json({ error: 'Email hoặc mật khẩu không chính xác.' });
     if (!verifyPassword(password, user.password_hash)) {
       return res.status(401).json({ error: 'Email hoặc mật khẩu không chính xác.' });
+    }
+    if (user.role === 'member' && user.member_status !== 'active') {
+      return res.status(403).json({ error: 'Tài khoản hội viên đang tạm ngừng hoạt động. Vui lòng liên hệ quản trị viên.' });
     }
     const account = { id: user.id, full_name: user.full_name, email: user.email, role: user.role };
     res.json({ token: signToken(account), user: account });
@@ -325,12 +349,18 @@ app.post('/api/auth/verify-otp', async (req, res, next) => {
   const email = String(req.body.email || '').trim().toLowerCase(), code = String(req.body.code || '');
   if (!email || !/^\d{6}$/.test(code)) return res.status(400).json({ error: 'Nhập email và mã gồm 6 chữ số.' });
   try {
-    const [rows] = await pool.execute(`SELECT u.id, u.full_name, u.email, u.role, o.id AS otp_id, o.code_hash, o.attempts
-      FROM users u JOIN login_otps o ON o.user_id = u.id WHERE u.email = ? AND o.expires_at > NOW() ORDER BY o.id DESC LIMIT 1`, [email]);
+    const [rows] = await pool.execute(`SELECT u.id, u.full_name, u.email, u.role, m.status AS member_status, o.id AS otp_id, o.code_hash, o.attempts
+      FROM users u
+      JOIN login_otps o ON o.user_id = u.id
+      LEFT JOIN members m ON m.id = u.member_id
+      WHERE u.email = ? AND o.expires_at > NOW() ORDER BY o.id DESC LIMIT 1`, [email]);
     const row = rows[0];
     if (!row || row.attempts >= 5 || row.code_hash !== otpHash(email, code)) {
       if (row) await pool.execute('UPDATE login_otps SET attempts = attempts + 1 WHERE id = ?', [row.otp_id]);
       return res.status(401).json({ error: 'Mã xác nhận không đúng hoặc đã hết hạn.' });
+    }
+    if (row.role === 'member' && row.member_status !== 'active') {
+      return res.status(403).json({ error: 'Tài khoản hội viên đang tạm ngừng hoạt động. Vui lòng liên hệ quản trị viên.' });
     }
     await pool.execute('DELETE FROM login_otps WHERE user_id = ?', [row.id]);
     const account = { id: row.id, full_name: row.full_name, email: row.email, role: row.role };
@@ -338,10 +368,8 @@ app.post('/api/auth/verify-otp', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.get('/api/auth/me', async (req, res) => {
-  const user = currentUser(req);
-  if (!user) return res.status(401).json({ error: 'Phiên đăng nhập không hợp lệ.' });
-  res.json({ user });
+app.get('/api/auth/me', requireUser, async (req, res) => {
+  res.json({ user: req.user });
 });
 
 app.get('/api/member/catalog', requireUser, async (req, res, next) => {
@@ -479,6 +507,24 @@ app.post('/api/:resource', requireAdmin, async (req, res, next) => {
       } catch (e) { /* ignore duplicate */ }
     }
     res.status(201).json({ id: result.insertId });
+  } catch (error) { next(error); }
+});
+
+// Chỉ quản trị viên mới có thể tạm ngừng hoặc kích hoạt lại hội viên.
+// Route riêng giúp tránh ghi đè các trường hồ sơ khác khi chỉ đổi trạng thái.
+app.patch('/api/members/:id/status', requireAdmin, async (req, res, next) => {
+  const status = String(req.body.status || '');
+  if (!['active', 'Tạm ngưng'].includes(status)) {
+    return res.status(400).json({ error: 'Trạng thái hội viên không hợp lệ.' });
+  }
+  try {
+    const [result] = await pool.execute('UPDATE members SET status = ? WHERE id = ?', [status, req.params.id]);
+    if (!result.affectedRows) return res.status(404).json({ error: 'Không tìm thấy hội viên.' });
+    res.json({
+      updated: true,
+      status,
+      message: status === 'active' ? 'Đã kích hoạt lại hội viên.' : 'Đã tạm ngừng hoạt động hội viên.'
+    });
   } catch (error) { next(error); }
 });
 
